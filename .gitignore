@@ -6,3 +6,6 @@ publish/
 
 ## OS
 .DS_Store
+
+## Milestone 2: cached Microsoft sign-in (refresh token + proof key)
+BedrockConsoleClient.msa-cache

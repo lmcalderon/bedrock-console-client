@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 // roles: signing the self-signed identity/client-data JWTs (ECDsa) and the
 // encryption handshake's ECDH exchange (ECDiffieHellman). Bedrock doesn't
 // generate a separate key for either purpose, confirmed from PMMP/gophertunnel.
-internal sealed class BedrockKeyPair : IDisposable
+public sealed class BedrockKeyPair : IDisposable
 {
   private readonly ECParameters _parameters;
 

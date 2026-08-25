@@ -1,13 +1,15 @@
 using System.Globalization;
 using System.Net;
+using BedrockConsoleClient.Auth.XboxLive;
 using BedrockConsoleClient.Configuration;
 using BedrockConsoleClient.Networking.Bedrock;
+using BedrockConsoleClient.Networking.Bedrock.Identity;
 using BedrockConsoleClient.Networking.RakNet;
 
-Log("Bedrock Console Client - Milestone 1 (Bedrock login sequence)");
+Log("Bedrock Console Client");
 
 var config = BedrockClientConfigLoader.LoadOrCreateDefault();
-Log($"Config: ServerAddress={config.ServerAddress}, Username={config.Username} ({BedrockClientConfigLoader.FileName})");
+Log($"Config: ServerAddress={config.ServerAddress}, Username={config.Username}, AuthMode={config.AuthMode} ({BedrockClientConfigLoader.FileName})");
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
@@ -15,6 +17,23 @@ Console.CancelKeyPress += (_, e) =>
   e.Cancel = true;
   cts.Cancel();
 };
+
+// Xbox Live sign-in (when configured) happens before the RakNet connection
+// opens: interactive device-code sign-in can take far longer than
+// BedrockLoginOptions.LoginTimeout allows for the handshake that follows.
+using var authHttpClient = new HttpClient();
+IIdentityChainProvider identityProvider;
+try
+{
+  identityProvider = config.AuthMode == BedrockAuthMode.Microsoft
+      ? await XboxLiveIdentityChainProvider.SignInAsync(authHttpClient, message => Log($"[auth] {message}"), cts.Token)
+      : new SelfSignedIdentityChainProvider(config.Username);
+}
+catch (Exception ex)
+{
+  Log($"Xbox Live sign-in failed: {ex.Message}");
+  return;
+}
 
 IPEndPoint endpoint;
 try
@@ -67,6 +86,7 @@ try
   session = await BedrockSession.LoginAsync(
       connection,
       loginOptions,
+      identityProvider,
       onStateChanged: state => Log($"[login] {state}"),
       ct: cts.Token);
 }

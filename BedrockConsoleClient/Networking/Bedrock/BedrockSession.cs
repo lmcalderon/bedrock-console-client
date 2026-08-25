@@ -31,6 +31,7 @@ public sealed class BedrockSession : IAsyncDisposable
   private readonly RakNetConnection _connection;
   private readonly BedrockLoginOptions _options;
   private readonly BedrockKeyPair _keyPair;
+  private readonly IIdentityChainProvider _identityProvider;
   private readonly Lock _gate = new();
   private readonly TaskCompletionSource _spawnedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -53,21 +54,23 @@ public sealed class BedrockSession : IAsyncDisposable
     }
   }
 
-  private BedrockSession(RakNetConnection connection, BedrockLoginOptions options, BedrockKeyPair keyPair)
+  private BedrockSession(RakNetConnection connection, BedrockLoginOptions options, BedrockKeyPair keyPair, IIdentityChainProvider identityProvider)
   {
     _connection = connection;
     _options = options;
     _keyPair = keyPair;
+    _identityProvider = identityProvider;
   }
 
   public static async Task<BedrockSession> LoginAsync(
       RakNetConnection connection,
       BedrockLoginOptions options,
+      IIdentityChainProvider identityProvider,
       Action<BedrockLoginState>? onStateChanged = null,
       CancellationToken ct = default)
   {
     var keyPair = BedrockKeyPair.Generate();
-    var session = new BedrockSession(connection, options, keyPair);
+    var session = new BedrockSession(connection, options, keyPair, identityProvider);
     if (onStateChanged is not null)
     {
       session.StateChanged += onStateChanged;
@@ -249,17 +252,19 @@ public sealed class BedrockSession : IAsyncDisposable
     throw new InvalidOperationException($"Login failed: server returned PlayStatus {status}.");
   }
 
-  private Task SendLoginAsync(CancellationToken ct)
+  private async Task SendLoginAsync(CancellationToken ct)
   {
-    string identityJwt = SelfSignedIdentityChain.Build(_keyPair, _options.Username);
+    IdentityChainResult identity = await _identityProvider.ResolveAsync(_keyPair, ct);
     string clientDataJwt = ClientDataJwt.Build(_keyPair, _options.ServerAddress);
 
-    // AuthenticationType numeric value for self-signed/offline mode is not
-    // literally confirmed from PMMP source; best-guess 2, from reference
-    // client convention. See docs/notes/bedrock-login-design.md.
-    string authInfoJson = JsonSerializer.Serialize(new { AuthenticationType = 2, Token = identityJwt });
+    // Certificate is the real Bedrock wire format's chain-of-trust; PMMP's
+    // current AuthenticationInfo model happens not to read it, but other
+    // servers may, so it's still sent whenever the provider has one.
+    string authInfoJson = identity.Certificate is null
+        ? JsonSerializer.Serialize(new { identity.AuthenticationType, identity.Token })
+        : JsonSerializer.Serialize(new { identity.AuthenticationType, identity.Certificate, identity.Token });
 
-    return SendGamePacketAsync(Login.Encode(_options.ProtocolVersion, authInfoJson, clientDataJwt), ct);
+    await SendGamePacketAsync(Login.Encode(_options.ProtocolVersion, authInfoJson, clientDataJwt), ct);
   }
 
   private void EnableEncryption(string serverToClientHandshakeJwt)

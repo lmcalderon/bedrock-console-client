@@ -19,11 +19,14 @@ metadata:
     - login
     - idle
     - milestone 1
+    - milestone 2
+    - xbox live
+    - microsoft sign-in
 ---
 
 # Bedrock Integration Testing
 
-Milestone 1 is fully implemented and integration tested as of this writing: RakNet transport (see [docs/notes/raknet-design.md](../../docs/notes/raknet-design.md)) and the Bedrock login sequence, including encryption (see [docs/notes/bedrock-login-design.md](../../docs/notes/bedrock-login-design.md)). The client reaches `Spawned` and idles indefinitely, past the 10-second RakNet-only login timeout that motivated the login work in the first place.
+Milestone 1 is fully implemented and integration tested as of this writing: RakNet transport (see [docs/notes/raknet-design.md](../../docs/notes/raknet-design.md)) and the Bedrock login sequence, including encryption (see [docs/notes/bedrock-login-design.md](../../docs/notes/bedrock-login-design.md)). The client reaches `Spawned` and idles indefinitely, past the 10-second RakNet-only login timeout that motivated the login work in the first place. Milestone 2 (Xbox Live sign-in, see [docs/notes/bedrock-xbox-live-auth-design.md](../../docs/notes/bedrock-xbox-live-auth-design.md)) is implemented and integration tested against the local server; a real third-party online-mode server is still outstanding (test mode 4 below).
 
 Modeled on Minecraft-Console-Client's `mcc-integration-testing` skill, which enforces the same discipline for MCC's Java Edition testing. This is the Bedrock-side, project-specific equivalent — not a copy, since the server, protocol, and harness are all different.
 
@@ -110,3 +113,28 @@ Default PMMP config (`enable-encryption: true` left on — this is the real test
 Last verified: full login (`RequestNetworkSettings` → `Spawned`) completes in ~300ms on loopback.
 
 This test caught four real bugs during implementation — a missing JWT claim, a wrong field name plus ~10 missing required fields in the client-data JWT, a missing required `aud` claim, and (the significant one) an AES-CTR keystream that wasn't a continuous stream across encrypt/decrypt calls, which silently corrupted every packet after the first. All four were resolved by reading PMMP's actual source (cloned locally at `~/Minecraft/pmmp-reference/`) rather than guessing from reference-client conventions. See [docs/notes/bedrock-login-design.md](../../docs/notes/bedrock-login-design.md) for details.
+
+### 4. Milestone 2: Xbox Live sign-in
+
+Requires the local PMMP server to actually enforce Xbox Live authentication — flip `xbox-auth=off` to `xbox-auth=on` in `~/Minecraft/pmmp-test-server/server.properties`, restart with `./start.sh --no-wizard`. Set `Mode=Microsoft` under `[Auth]` in `BedrockConsoleClient.ini`.
+
+```bash
+cd ~/Minecraft/pmmp-test-server && ./start.sh --no-wizard &
+cd /path/to/bedrock-console-client && dotnet run --project BedrockConsoleClient
+```
+
+First run, no cached token — pass criteria, from **both** sides:
+
+- Client logs `[auth] Sign in to your Microsoft account at <url> using the code <code>.`, a real device-code prompt from `login.live.com`.
+- After completing sign-in in a browser (a human, once, per machine — the one step that can't run unattended), client logs `[auth] Signed in to Xbox Live as <real gamertag>.`, then proceeds through `[login]` states to `Spawned`.
+- PMMP's log shows `[Minecraft Auth Key Provider] Successfully fetched ... authentication keys from issuer https://authorization.franchise.minecraft-services.net/`, followed by `<gamertag> logged in with entity id N` — a real join with a real gamertag, not the self-signed placeholder username.
+
+Second run, cached token present (`BedrockConsoleClient.msa-cache` next to the executable) — pass criteria:
+
+- No device-code prompt; client logs `[auth] Refreshing cached Microsoft sign-in...` then `Signed in to Xbox Live as <gamertag>.` and reaches `Spawned` non-interactively.
+
+Regression check after any change to the identity-provider seam: re-run test mode 3 above (`Mode=SelfSigned`) and confirm it still reaches `Spawned` unmodified — `BedrockSession.LoginAsync`'s signature changed to accept an `IIdentityChainProvider`, so this isn't automatically safe to assume.
+
+This test caught two real bugs during implementation — PlayFab's relying party missing from the generic NSAL endpoint table (needed the title-specific, authenticated table instead) and a response-envelope key mismatch between PlayFab's own API convention (`data`) and the franchise services' convention (`result`), which the first draft applied to both. See [docs/notes/bedrock-xbox-live-auth-design.md](../../docs/notes/bedrock-xbox-live-auth-design.md) for details.
+
+Revert `xbox-auth` to `off` and `Mode` to `SelfSigned` after this test, matching this skill's default test target.

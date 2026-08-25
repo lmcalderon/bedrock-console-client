@@ -10,9 +10,11 @@ Implement a minimal RakNet client (connection handshake, reliability/ordering, A
 
 **Done and integration tested**, including connection-level encryption (built in full rather than testing with it disabled, so this also works against real default-configured third-party servers, not just the local test box) — see [`docs/notes/raknet-design.md`](docs/notes/raknet-design.md), [`docs/notes/bedrock-login-design.md`](docs/notes/bedrock-login-design.md), and [`.skills/bedrock-integration-testing`](.skills/bedrock-integration-testing/SKILL.md). The client reaches `Spawned` (a real PocketMine-MP join, not just a RakNet session) and idles indefinitely.
 
-## Milestone 2 — Xbox Live / Microsoft authentication
+## Milestone 2 — Xbox Live / Microsoft authentication (done)
 
-OAuth device-code or browser sign-in against the user's Microsoft account, XBL user token, XSTS token scoped to `rp://multiplayer.minecraft.net/`, client-generated ECDSA P-384 keypair, signed JWT identity chain. Enables connecting to real (online-mode) servers.
+OAuth device-code sign-in against the user's Microsoft account, a SISU-based XBL/XSTS exchange, PlayFab login, and a franchise-service session/multiplayer token — the real six-hop flow (not the one-line spec originally sketched here), confirmed from reference source and real server errors. Enables connecting to real (online-mode) servers via `[Auth] Mode=Microsoft` in `BedrockConsoleClient.ini`; `SelfSigned` (Milestone 1's identity) stays the default.
+
+**Done and integration tested** against the local PocketMine-MP server with `xbox-auth=true` — a real Xbox Live login, real gamertag, real server-side key validation — see [`docs/notes/bedrock-xbox-live-auth-design.md`](docs/notes/bedrock-xbox-live-auth-design.md). Not yet tested against a real third-party online-mode server.
 
 ## Milestone 3 — Realms support
 

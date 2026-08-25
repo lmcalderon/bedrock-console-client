@@ -7,6 +7,9 @@ public sealed record BedrockClientConfig
 
   // Bedrock usernames are capped at 16 chars, alphanumeric/underscore/space
   // only (Player::isValidUserName on the PMMP side; see
-  // docs/notes/bedrock-login-design.md).
+  // docs/notes/bedrock-login-design.md). Ignored when AuthMode is Microsoft -
+  // the signed-in Xbox gamertag is used instead.
   public required string Username { get; init; }
+
+  public BedrockAuthMode AuthMode { get; init; } = BedrockAuthMode.SelfSigned;
 }
