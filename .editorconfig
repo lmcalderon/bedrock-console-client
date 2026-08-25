@@ -1,0 +1,85 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.cs]
+indent_style = space
+indent_size = 2
+
+#### Naming conventions (see .skills/csharp-best-practices/SKILL.md) ####
+
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+dotnet_naming_style.interface_prefix.capitalization = pascal_case
+dotnet_naming_style.interface_prefix.required_prefix = I
+dotnet_naming_style.private_field_prefix.capitalization = camel_case
+dotnet_naming_style.private_field_prefix.required_prefix = _
+dotnet_naming_style.static_field_prefix.capitalization = camel_case
+dotnet_naming_style.static_field_prefix.required_prefix = s_
+dotnet_naming_style.type_parameter_prefix.capitalization = pascal_case
+dotnet_naming_style.type_parameter_prefix.required_prefix = T
+
+dotnet_naming_symbols.types_and_members.applicable_kinds = class, struct, interface, enum, property, method, event, delegate, field
+dotnet_naming_symbols.types_and_members.applicable_accessibilities = public, internal, protected, protected_internal, private_protected
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+
+dotnet_naming_symbols.private_instance_fields.applicable_kinds = field
+dotnet_naming_symbols.private_instance_fields.applicable_accessibilities = private
+
+dotnet_naming_symbols.type_parameters.applicable_kinds = type_parameter
+
+# Order matters: more specific rules (static field) must precede the general private-field rule.
+dotnet_naming_rule.interfaces_should_have_i_prefix.symbols = interfaces
+dotnet_naming_rule.interfaces_should_have_i_prefix.style = interface_prefix
+dotnet_naming_rule.interfaces_should_have_i_prefix.severity = warning
+
+dotnet_naming_rule.private_static_fields_should_have_s_prefix.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_should_have_s_prefix.style = static_field_prefix
+dotnet_naming_rule.private_static_fields_should_have_s_prefix.severity = warning
+
+dotnet_naming_rule.private_instance_fields_should_have_underscore_prefix.symbols = private_instance_fields
+dotnet_naming_rule.private_instance_fields_should_have_underscore_prefix.style = private_field_prefix
+dotnet_naming_rule.private_instance_fields_should_have_underscore_prefix.severity = warning
+
+dotnet_naming_rule.type_parameters_should_have_t_prefix.symbols = type_parameters
+dotnet_naming_rule.type_parameters_should_have_t_prefix.style = type_parameter_prefix
+dotnet_naming_rule.type_parameters_should_have_t_prefix.severity = warning
+
+dotnet_naming_rule.types_and_members_should_be_pascal_case.symbols = types_and_members
+dotnet_naming_rule.types_and_members_should_be_pascal_case.style = pascal_case
+dotnet_naming_rule.types_and_members_should_be_pascal_case.severity = warning
+
+#### StyleCop.Analyzers: disable rules that conflict with this project's conventions ####
+
+# _camelCase / s_camelCase are the required field styles above; SA1309/SA1308/SA1311
+# ban the underscore/lowercase prefixes (same outdated-default conflict as SA1309 -
+# see the codebase's own naming-convention discussion in docs history).
+dotnet_diagnostic.SA1309.severity = none
+dotnet_diagnostic.SA1308.severity = none
+dotnet_diagnostic.SA1311.severity = none
+# XML doc comments are not required (default to no comments unless the WHY is non-obvious).
+dotnet_diagnostic.SA0001.severity = none
+dotnet_diagnostic.SA1600.severity = none
+dotnet_diagnostic.SA1601.severity = none
+dotnet_diagnostic.SA1602.severity = none
+# No copyright/license file header banner.
+dotnet_diagnostic.SA1633.severity = none
+# This project's own csharp-best-practices examples never use `this.` - it's
+# noise for locals/fields already disambiguated by _camelCase naming.
+dotnet_diagnostic.SA1101.severity = none
+# Strict access-modifier member ordering (public-before-private, static-before-
+# instance) isn't a documented C# convention, just a StyleCop layout opinion -
+# and it would scatter methods that are grouped by logical phase (e.g. RakNet's
+# offline handshake, connected handshake, reliability helpers) purely by
+# modifier, hurting readability for the sake of a mechanical rule.
+dotnet_diagnostic.SA1201.severity = none
+dotnet_diagnostic.SA1202.severity = none
+dotnet_diagnostic.SA1204.severity = none
