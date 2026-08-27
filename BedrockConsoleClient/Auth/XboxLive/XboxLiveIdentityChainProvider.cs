@@ -3,31 +3,31 @@ namespace BedrockConsoleClient.Auth.XboxLive;
 using System.Security.Cryptography;
 using BedrockConsoleClient.Networking.Bedrock.Identity;
 
-// Signs in with a real Microsoft/Xbox Live account and produces the identity
-// chain for online-mode servers - the Strategy counterpart to
+// Signs in with a real Microsoft/Xbox Live account and produces the Login
+// packet's AuthInfoJson for online-mode servers - the Strategy counterpart to
 // SelfSignedIdentityChainProvider. SignInAsync performs every step that
 // doesn't depend on a specific connection (OAuth, device/SISU/XSTS tokens,
 // PlayFab login, service discovery, the session token) up front and must run
 // before the RakNet connection is opened, since interactive sign-in can take
 // far longer than BedrockLoginOptions.LoginTimeout allows. ResolveAsync then
-// performs the two remaining calls that are genuinely bound to a
-// connection's fresh key pair: the identity chain (Certificate) and the
-// multiplayer token (Token) - two separate fields in the Login packet's
-// AuthInfoJson, confirmed from gophertunnel's login.request type; PMMP's
-// currently-tested server only reads Token, but Certificate is sent anyway
-// since other servers may expect it. See
-// docs/notes/bedrock-xbox-live-auth-design.md.
+// performs the one remaining call genuinely bound to a connection's fresh key
+// pair: the multiplayer token (Token). No Certificate field is sent - a real
+// client's Login packet AuthInfoJson for this AuthenticationType has only
+// AuthenticationType and Token, confirmed from a packet capture of a real
+// client's login against this project's own target server (an earlier
+// implementation that fetched a chain from multiplayer.minecraft.net/
+// authentication and added a self-signed bridge JWT, modeled on
+// gophertunnel's login.Encode, was rejected by the real server outright).
+// See docs/notes/bedrock-xbox-live-auth-design.md.
 internal sealed class XboxLiveIdentityChainProvider : IIdentityChainProvider
 {
   private readonly HttpClient _client;
-  private readonly XstsToken _minecraftToken;
   private readonly AuthorizationEnvironment _authEnvironment;
   private readonly string _sessionAuthorizationHeader;
 
-  private XboxLiveIdentityChainProvider(HttpClient client, XstsToken minecraftToken, AuthorizationEnvironment authEnvironment, string sessionAuthorizationHeader)
+  private XboxLiveIdentityChainProvider(HttpClient client, AuthorizationEnvironment authEnvironment, string sessionAuthorizationHeader)
   {
     _client = client;
-    _minecraftToken = minecraftToken;
     _authEnvironment = authEnvironment;
     _sessionAuthorizationHeader = sessionAuthorizationHeader;
   }
@@ -59,8 +59,6 @@ internal sealed class XboxLiveIdentityChainProvider : IIdentityChainProvider
 
     XboxLiveDeviceToken device = await XboxLiveDeviceAuth.AuthenticateAsync(client, proofKey, ct);
     SisuAuthorizationResult sisu = await SisuAuthorization.AuthorizeAsync(client, proofKey, device, microsoft.AccessToken, ct);
-    XstsToken minecraftToken = await XstsAuthorization.AuthorizeAsync(
-        client, proofKey, device, sisu.TitleToken, sisu.UserToken, BedrockXboxLiveConfig.MinecraftRelyingParty, ct);
 
     string playFabSessionTicket = await PlayFabClient.LoginWithXboxAsync(client, proofKey, device, sisu.TitleToken, sisu.UserToken, sisu.DefaultRelyingPartyToken, ct);
     AuthorizationEnvironment authEnvironment = await MinecraftServiceDiscovery.DiscoverAuthEnvironmentAsync(client, ct);
@@ -69,7 +67,7 @@ internal sealed class XboxLiveIdentityChainProvider : IIdentityChainProvider
     MicrosoftTokenCache.Save(microsoft.RefreshToken, proofKey);
     log?.Invoke($"Signed in to Xbox Live as {sisu.DefaultRelyingPartyToken.GamerTag ?? sisu.DefaultRelyingPartyToken.UserHash}.");
 
-    return new XboxLiveIdentityChainProvider(client, minecraftToken, authEnvironment, sessionAuthorizationHeader);
+    return new XboxLiveIdentityChainProvider(client, authEnvironment, sessionAuthorizationHeader);
   }
 
   private static async Task<(ECDsa ProofKey, MicrosoftTokenResult Token)> SignInInteractiveAsync(HttpClient client, Action<string>? log, CancellationToken ct)
@@ -84,12 +82,10 @@ internal sealed class XboxLiveIdentityChainProvider : IIdentityChainProvider
 
   public async Task<IdentityChainResult> ResolveAsync(BedrockKeyPair keyPair, CancellationToken ct)
   {
-    string certificate = await MinecraftChainClient.RequestChainAsync(_client, _minecraftToken, keyPair, ct);
     string multiplayerToken = await MinecraftAuthorizationService.RequestMultiplayerTokenAsync(_client, _authEnvironment, _sessionAuthorizationHeader, keyPair, ct);
 
-    // AuthenticationType.FULL, confirmed from PMMP source (see
-    // docs/notes/bedrock-xbox-live-auth-design.md) - distinct from
-    // SelfSignedIdentityChainProvider's SELF_SIGNED (2).
-    return new IdentityChainResult(AuthenticationType: 0, Token: multiplayerToken, Certificate: certificate);
+    // AuthenticationType.FULL (see docs/notes/bedrock-xbox-live-auth-design.md)
+    // - distinct from SelfSignedIdentityChainProvider's SELF_SIGNED (2).
+    return new IdentityChainResult(AuthenticationType: 0, Token: multiplayerToken);
   }
 }

@@ -6,7 +6,7 @@ using System.Security.Cryptography;
 // no persistent identity in offline mode. The same key material serves two
 // roles: signing the self-signed identity/client-data JWTs (ECDsa) and the
 // encryption handshake's ECDH exchange (ECDiffieHellman). Bedrock doesn't
-// generate a separate key for either purpose, confirmed from PMMP/gophertunnel.
+// generate a separate key for either purpose, confirmed from gophertunnel.
 public sealed class BedrockKeyPair : IDisposable
 {
   private readonly ECParameters _parameters;

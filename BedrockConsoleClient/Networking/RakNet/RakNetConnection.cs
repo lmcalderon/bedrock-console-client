@@ -1,6 +1,7 @@
 namespace BedrockConsoleClient.Networking.RakNet;
 
 using System.Buffers.Binary;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using BedrockConsoleClient.Networking.RakNet.IO;
@@ -110,6 +111,33 @@ public sealed class RakNetConnection : IAsyncDisposable
       connection._maintenanceLoopTask = connection.MaintenanceLoopAsync(connection._lifetimeCts.Token);
 
       await connection.PerformConnectedHandshakeAsync(handshakeCts.Token);
+    }
+    catch (OperationCanceledException) when (handshakeCts.IsCancellationRequested && !ct.IsCancellationRequested)
+    {
+      if (connection._lifetimeCts is not null)
+      {
+        await connection._lifetimeCts.CancelAsync();
+      }
+
+      socket.Dispose();
+      throw new TimeoutException(
+          $"Handshake timed out after {options.HandshakeOverallTimeout.TotalSeconds:0}s while in {connection.State} state: " +
+          $"no reply from {remoteEndPoint}. The server accepted earlier handshake steps but stopped responding - " +
+          "check for a firewall dropping return traffic, or a RakNet/protocol mismatch.");
+    }
+    catch (SocketException se) when (se.SocketErrorCode == SocketError.ConnectionRefused)
+    {
+      if (connection._lifetimeCts is not null)
+      {
+        await connection._lifetimeCts.CancelAsync();
+      }
+
+      socket.Dispose();
+      throw new IOException(
+          $"{remoteEndPoint} refused the connection: {remoteEndPoint.Address} is reachable, " +
+          $"but nothing is listening on UDP port {remoteEndPoint.Port} (server not running, wrong port, " +
+          "or a firewall is actively rejecting it there).",
+          se);
     }
     catch
     {

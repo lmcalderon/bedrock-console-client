@@ -18,9 +18,9 @@ internal readonly record struct ConnectionRequestAccepted(
     var reader = new RakNetSpanReader(data[consumed..]);
     ushort systemIndex = reader.ReadUInt16BE();
 
-    // The system-address list is nominally 20 entries, but real servers (PMMP
-    // included) often send fewer. Stop once exactly 16 bytes remain (the two
-    // trailing int64 timestamps) rather than trusting a fixed count.
+    // The system-address list is nominally 20 entries, but real servers often
+    // send fewer. Stop once exactly 16 bytes remain (the two trailing int64
+    // timestamps) rather than trusting a fixed count.
     for (int i = 0; i < SystemAddressSlotCount && reader.Remaining != 16; i++)
     {
       int addressSize = RakNetAddress.SizeOf(reader.ReadRemaining());

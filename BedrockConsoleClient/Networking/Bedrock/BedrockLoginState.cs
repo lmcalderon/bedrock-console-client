@@ -14,11 +14,21 @@ public enum BedrockLoginState
   AwaitingResourcePackStack,
   AwaitingStartGame,
 
-  // Confirmed against PMMP's SpawnResponsePacketHandler: the server does not
-  // send a second PlayStatus(PLAYER_SPAWN) before this. It waits for
-  // SetLocalPlayerAsInitialized from the client immediately after StartGame,
-  // and only then completes the spawn. So this state transitions straight to
-  // Spawned; there is no separate "waiting for spawn confirmation" state.
+  // Sending SetLocalPlayerAsInitialized immediately after StartGame (an
+  // earlier attempt at this, based on an earlier/retired test server) leaves
+  // real BDS never logging the join as "Player Spawned" server-side, even
+  // though the client keeps idling without being disconnected - confirmed by
+  // diffing against gophertunnel's real, successful client-side spawn
+  // sequence (minecraft/conn.go): StartGame -> ItemRegistry -> client sends
+  // RequestChunkRadius -> both ChunkRadiusUpdated and PlayStatus(PlayerSpawn)
+  // must arrive (order not guaranteed) -> only then does the client send
+  // SetLocalPlayerAsInitialized. AwaitingItemRegistry/AwaitingSpawnConfirmation
+  // model those two extra waits; BedrockSession tracks the "both arrived" half
+  // of AwaitingSpawnConfirmation with two booleans rather than further states,
+  // since the two packets are independent, not sequential.
+  AwaitingItemRegistry,
+  AwaitingSpawnConfirmation,
+
   Spawned,
   Disconnected,
 }

@@ -2,7 +2,7 @@ namespace BedrockConsoleClient.Networking.Bedrock.Packets;
 
 using BedrockConsoleClient.Networking.Bedrock.IO;
 
-// Client -> server only. The final packet of the login sequence; PMMP
+// Client -> server only. The final packet of the login sequence; the server
 // considers the player joined once this arrives.
 internal static class SetLocalPlayerAsInitialized
 {

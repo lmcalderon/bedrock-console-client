@@ -4,7 +4,7 @@ Notes on what a login-and-idle Bedrock Edition client actually requires, gathere
 
 ## Transport and packet protocol
 
-Bedrock Edition runs over **RakNet** (UDP), not Java Edition's raw TCP stream. A client needs its own RakNet implementation: connection handshake, reliability/ordering channels, packet splitting/reassembly, and ACK/NAK handling. Bedrock's packet IDs, structure, and per-batch compression (zlib/snappy) are entirely separate from Java Edition's protocol — there is nothing to port from a Java-focused client, this is a ground-up stack.
+Bedrock Edition runs over **RakNet** (UDP), not Java Edition's raw TCP stream. A client needs its own RakNet implementation: connection handshake, reliability/ordering channels, packet splitting/reassembly, and ACK/NAK handling. Bedrock's packet IDs, structure, and per-batch compression (zlib/snappy) are entirely separate from Java Edition's protocol. There is nothing to port from a Java-focused client; this is a ground-up stack.
 
 Reference implementations worth studying: `gophertunnel` (Go), `bedrock-protocol` (Node.js).
 
@@ -29,8 +29,8 @@ Even a client that only wants to idle still has to participate in the handshake:
 
 ## Server types
 
-- **Local / third-party servers** (self-hosted Bedrock Dedicated Server, PocketMine-MP, Nukkit, community hosts): direct IP:port connection, no additional API layer. Many such servers support disabling Xbox Live authentication ("offline mode"), in which case the client can present a self-signed identity chain instead of a real Microsoft/XBL-signed one — a good way to get RakNet + login working before any real auth code exists. See [`.skills/bedrock-integration-testing`](../../.skills/bedrock-integration-testing/SKILL.md) for concrete macOS setup steps (PocketMine-MP, since official BDS is Windows/Linux only).
-- **Microsoft Realms**: not a plain IP:port. Requires an XSTS token scoped to the Realms relying party, a call to the Realms API (`https://pocket.realms.minecraft.net/worlds`) to list realms the account owns or was invited to, then a join call to resolve a live connection address/session — only after that does the normal RakNet handshake + login proceed. Treat as its own milestone, later than direct-connect support.
+- **Local / third-party servers** (self-hosted Bedrock Dedicated Server, community server implementations, community hosts): direct IP:port connection, no additional API layer. Many such servers support disabling Xbox Live authentication ("offline mode"), in which case the client can present a self-signed identity chain instead of a real Microsoft/XBL-signed one - a good way to get RakNet + login working before any real auth code exists. See [`.skills/bedrock-integration-testing`](../../.skills/bedrock-integration-testing/SKILL.md) for concrete local setup steps (official BDS, run via Docker so it isn't limited to Windows/Linux hosts).
+- **Microsoft Realms**: not a plain IP:port. Requires an XSTS token scoped to the Realms relying party, a call to the Realms API (`https://pocket.realms.minecraft.net/worlds`) to list realms the account owns or was invited to, then a join call to resolve a live connection address/session; only after that does the normal RakNet handshake + login proceed. Treat as its own milestone, later than direct-connect support.
 
 ## Mobile client (aside)
 

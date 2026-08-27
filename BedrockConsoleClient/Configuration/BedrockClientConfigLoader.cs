@@ -6,20 +6,22 @@ public static class BedrockClientConfigLoader
 
   private const string DefaultContent = """
       [Main]
-      ; Address of the Bedrock server to connect to, as host:port.
+      ; Bedrock server to connect to, as host:port.
       ServerAddress=127.0.0.1:19132
 
-      ; Username to log in with. Bedrock usernames are capped at 16
-      ; characters: letters, numbers, underscores, and spaces only.
+      ; Login username (max 16 characters). Ignored if Mode=Microsoft below.
       Username=BedrockClient
 
       [Auth]
-      ; "SelfSigned" (default) connects to offline-mode servers with a
-      ; throwaway identity - no Microsoft account needed. "Microsoft" signs
-      ; in with a real account via Xbox Live, needed for online-mode
-      ; servers. When set to Microsoft, Username above is ignored - your
-      ; Xbox gamertag is used instead.
+      ; SelfSigned (default): offline-mode servers, no Microsoft account.
+      ; Microsoft: signs in via Xbox Live for online-mode servers, using
+      ; your gamertag instead of Username above.
       Mode=SelfSigned
+
+      [Diagnostics]
+      ; Logs each packet's ID and size as it's sent/received - handy when
+      ; reporting a connection problem.
+      Verbose=false
 
       """;
 
@@ -39,12 +41,14 @@ public static class BedrockClientConfigLoader
     var sections = IniFile.Parse(path);
     var main = sections.GetValueOrDefault("Main") ?? [];
     var auth = sections.GetValueOrDefault("Auth") ?? [];
+    var diagnostics = sections.GetValueOrDefault("Diagnostics") ?? [];
 
     return new BedrockClientConfig
     {
       ServerAddress = main.GetValueOrDefault("ServerAddress", "127.0.0.1:19132"),
       Username = main.GetValueOrDefault("Username", "BedrockClient"),
       AuthMode = ParseAuthMode(auth.GetValueOrDefault("Mode")),
+      Verbose = string.Equals(diagnostics.GetValueOrDefault("Verbose"), "true", StringComparison.OrdinalIgnoreCase),
     };
   }
 

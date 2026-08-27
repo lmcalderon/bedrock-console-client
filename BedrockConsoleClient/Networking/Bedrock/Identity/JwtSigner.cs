@@ -3,14 +3,27 @@ namespace BedrockConsoleClient.Networking.Bedrock.Identity;
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 internal static class JwtSigner
 {
+  // System.Text.Json's default encoder over-escapes safe ASCII characters
+  // (e.g. '+' as +) for HTML-embedding safety. x5u/cpk claims carry
+  // standard Base64 DER data, which is virtually guaranteed to contain '+'
+  // or '/' - the default encoder was silently corrupting every JWT this
+  // client sent from the server's perspective (its JSON parser doesn't
+  // decode \uXXXX escapes the way System.Text.Json produces them), causing
+  // "readNoHeader failed! packetId: 1" on every single login attempt.
+  private static readonly JsonSerializerOptions s_jsonOptions = new()
+  {
+    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+  };
+
   public static string Sign(object header, object payload, ECDsa key)
   {
-    string headerB64 = Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(header));
-    string payloadB64 = Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(payload));
+    string headerB64 = Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(header, s_jsonOptions));
+    string payloadB64 = Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(payload, s_jsonOptions));
     string signingInput = $"{headerB64}.{payloadB64}";
 
     byte[] signature = key.SignData(

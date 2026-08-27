@@ -4,10 +4,11 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 
 // Wraps one negotiated AES-256 key for the lifetime of a Bedrock connection.
-// Mirrors PMMP's own "fakeGCM": real AES-256-CTR keystream, no authenticated
-// encryption; integrity instead comes from an 8-byte SHA-256-based trailer,
-// a construction confirmed identically across PMMP/gophertunnel/bedrock-protocol
-// despite the "GCM" naming. Send/receive counters are independent.
+// Real AES-256-CTR keystream, no authenticated encryption despite the
+// protocol calling this "GCM"; integrity instead comes from an 8-byte
+// SHA-256-based trailer, a construction confirmed identically across
+// gophertunnel/bedrock-protocol source. Send/receive counters are
+// independent.
 internal sealed class BedrockEncryptionContext : IDisposable
 {
   private readonly byte[] _key;
@@ -15,8 +16,7 @@ internal sealed class BedrockEncryptionContext : IDisposable
   private readonly ICryptoTransform _ecbEncryptor;
 
   // Mimics the "block 1 reserved for the GCM auth tag" convention this
-  // construction imitates, so keystreams start at block counter 2. Confirmed
-  // against PMMP's literal EncryptionContext::fakeGCM IV construction.
+  // construction imitates, so keystreams start at block counter 2.
   private readonly CtrKeystreamState _sendKeystream = new(startingBlockCounter: 2);
   private readonly CtrKeystreamState _receiveKeystream = new(startingBlockCounter: 2);
   private ulong _sendChecksumCounter;

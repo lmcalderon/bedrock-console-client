@@ -4,13 +4,16 @@ namespace BedrockConsoleClient.Networking.Bedrock.Identity;
 // IIdentityChainProvider, unchanged from before this seam existed.
 internal sealed class SelfSignedIdentityChainProvider(string username) : IIdentityChainProvider
 {
+  // The dummy chain gophertunnel's login.EncodeOffline sends for
+  // AuthenticationType.SELF_SIGNED: a chain with one empty-string element,
+  // never a real signed JWT and never omitted - see
+  // IdentityChainResult.Certificate.
+  private const string DummyCertificateChain = "{\"chain\":[\"\"]}";
+
   public Task<IdentityChainResult> ResolveAsync(BedrockKeyPair keyPair, CancellationToken ct)
   {
     string token = SelfSignedIdentityChain.Build(keyPair, username);
 
-    // AuthenticationType numeric value for self-signed/offline mode is not
-    // literally confirmed from PMMP source; best-guess 2, from reference
-    // client convention. See docs/notes/bedrock-login-design.md.
-    return Task.FromResult(new IdentityChainResult(2, token));
+    return Task.FromResult(new IdentityChainResult(2, token, DummyCertificateChain));
   }
 }

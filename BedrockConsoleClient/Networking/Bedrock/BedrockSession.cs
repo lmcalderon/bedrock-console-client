@@ -1,6 +1,7 @@
 namespace BedrockConsoleClient.Networking.Bedrock;
 
 using System.Security.Cryptography;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using BedrockConsoleClient.Networking.Bedrock.Batch;
 using BedrockConsoleClient.Networking.Bedrock.Encryption;
@@ -16,6 +17,14 @@ using BedrockConsoleClient.Networking.RakNet;
 /// </summary>
 public sealed class BedrockSession : IAsyncDisposable
 {
+  // Matches JwtSigner's encoder: the default one over-escapes safe ASCII
+  // characters (e.g. base64 '+'/'/' inside Certificate/Token) as \uXXXX,
+  // which this project's target servers don't decode correctly.
+  private static readonly JsonSerializerOptions s_authInfoJsonOptions = new()
+  {
+    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+  };
+
   private static readonly Dictionary<BedrockLoginState, BedrockLoginState[]> s_legalTransitions = new()
   {
     [BedrockLoginState.NotStarted] = [BedrockLoginState.AwaitingNetworkSettings],
@@ -23,7 +32,9 @@ public sealed class BedrockSession : IAsyncDisposable
     [BedrockLoginState.AwaitingPlayStatusLoginOk] = [BedrockLoginState.AwaitingResourcePacksInfo, BedrockLoginState.Disconnected],
     [BedrockLoginState.AwaitingResourcePacksInfo] = [BedrockLoginState.AwaitingResourcePackStack, BedrockLoginState.Disconnected],
     [BedrockLoginState.AwaitingResourcePackStack] = [BedrockLoginState.AwaitingStartGame, BedrockLoginState.Disconnected],
-    [BedrockLoginState.AwaitingStartGame] = [BedrockLoginState.Spawned, BedrockLoginState.Disconnected],
+    [BedrockLoginState.AwaitingStartGame] = [BedrockLoginState.AwaitingItemRegistry, BedrockLoginState.Disconnected],
+    [BedrockLoginState.AwaitingItemRegistry] = [BedrockLoginState.AwaitingSpawnConfirmation, BedrockLoginState.Disconnected],
+    [BedrockLoginState.AwaitingSpawnConfirmation] = [BedrockLoginState.Spawned, BedrockLoginState.Disconnected],
     [BedrockLoginState.Spawned] = [BedrockLoginState.Disconnected],
     [BedrockLoginState.Disconnected] = [],
   };
@@ -34,12 +45,19 @@ public sealed class BedrockSession : IAsyncDisposable
   private readonly IIdentityChainProvider _identityProvider;
   private readonly Lock _gate = new();
   private readonly TaskCompletionSource _spawnedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+  private readonly Action<string>? _onVerbose;
 
   private BedrockLoginState _state = BedrockLoginState.NotStarted;
   private CompressionAlgorithm? _negotiatedCompression;
   private int _compressionThreshold;
   private BedrockEncryptionContext? _encryption;
   private ulong _actorRuntimeId;
+
+  // The two independent, order-unspecified conditions real BDS waits for
+  // before considering the player spawned - see BedrockLoginState and
+  // TryFinalizeSpawnAsync.
+  private bool _chunkRadiusUpdated;
+  private bool _playStatusPlayerSpawnReceived;
 
   public event Action<BedrockLoginState>? StateChanged;
 
@@ -54,12 +72,13 @@ public sealed class BedrockSession : IAsyncDisposable
     }
   }
 
-  private BedrockSession(RakNetConnection connection, BedrockLoginOptions options, BedrockKeyPair keyPair, IIdentityChainProvider identityProvider)
+  private BedrockSession(RakNetConnection connection, BedrockLoginOptions options, BedrockKeyPair keyPair, IIdentityChainProvider identityProvider, Action<string>? onVerbose)
   {
     _connection = connection;
     _options = options;
     _keyPair = keyPair;
     _identityProvider = identityProvider;
+    _onVerbose = onVerbose;
   }
 
   public static async Task<BedrockSession> LoginAsync(
@@ -67,10 +86,11 @@ public sealed class BedrockSession : IAsyncDisposable
       BedrockLoginOptions options,
       IIdentityChainProvider identityProvider,
       Action<BedrockLoginState>? onStateChanged = null,
+      Action<string>? onVerbose = null,
       CancellationToken ct = default)
   {
     var keyPair = BedrockKeyPair.Generate();
-    var session = new BedrockSession(connection, options, keyPair, identityProvider);
+    var session = new BedrockSession(connection, options, keyPair, identityProvider, onVerbose);
     if (onStateChanged is not null)
     {
       session.StateChanged += onStateChanged;
@@ -99,8 +119,11 @@ public sealed class BedrockSession : IAsyncDisposable
     try
     {
       List<byte[]> packets = DecodeBatch(content.Span);
+      _onVerbose?.Invoke($"recv batch: {content.Length}b -> {packets.Count} packet(s)");
       foreach (byte[] packet in packets)
       {
+        var (id, headerSize) = BedrockPacketHeader.ReadId(packet);
+        _onVerbose?.Invoke($"recv packet id=0x{(uint)id:X2} ({id}) {packet.Length - headerSize}b");
         await HandlePacketAsync(packet, CancellationToken.None);
       }
     }
@@ -174,6 +197,7 @@ public sealed class BedrockSession : IAsyncDisposable
             _compressionThreshold = settings.CompressionThreshold;
           }
 
+          _onVerbose?.Invoke($"negotiated compression={settings.CompressionAlgorithm} threshold={settings.CompressionThreshold}");
           TransitionTo(BedrockLoginState.AwaitingPlayStatusLoginOk);
           await SendLoginAsync(ct);
           break;
@@ -185,6 +209,23 @@ public sealed class BedrockSession : IAsyncDisposable
           EnableEncryption(jwt);
           await SendGamePacketAsync(ClientToServerHandshake.Encode(), ct);
           break;
+        }
+
+      case BedrockPacketId.Disconnect:
+        {
+          var disconnect = Disconnect.Decode(payload);
+          string reasonText = disconnect.Message is { Length: > 0 }
+              ? disconnect.Message
+              : $"reason code {disconnect.Reason}";
+          throw new InvalidOperationException($"Server disconnected: {reasonText}");
+        }
+
+      case BedrockPacketId.PacketViolationWarning:
+        {
+          var violation = PacketViolationWarning.Decode(payload);
+          throw new InvalidOperationException(
+              $"Server reported a packet violation (type={violation.Type}, packetId=0x{violation.PacketId:X2}, " +
+              $"severity={violation.Severity}): {violation.Message}");
         }
 
       case BedrockPacketId.PlayStatus:
@@ -216,15 +257,19 @@ public sealed class BedrockSession : IAsyncDisposable
       case BedrockPacketId.StartGame:
         {
           _actorRuntimeId = StartGame.DecodeActorRuntimeId(payload);
-
-          // PMMP's SpawnResponsePacketHandler waits for this immediately after
-          // StartGame; there is no separate PlayStatus(PLAYER_SPAWN) to wait
-          // for first (confirmed after an earlier attempt stalled here).
-          TransitionTo(BedrockLoginState.Spawned);
-          await SendGamePacketAsync(SetLocalPlayerAsInitialized.Encode(_actorRuntimeId), ct);
-          _spawnedTcs.TrySetResult();
+          TransitionTo(BedrockLoginState.AwaitingItemRegistry);
           break;
         }
+
+      case BedrockPacketId.ItemRegistry:
+        TransitionTo(BedrockLoginState.AwaitingSpawnConfirmation);
+        await SendGamePacketAsync(RequestChunkRadius.Encode(), ct);
+        break;
+
+      case BedrockPacketId.ChunkRadiusUpdated:
+        _chunkRadiusUpdated = true;
+        await TryFinalizeSpawnAsync(ct);
+        break;
 
       default:
         // Anything else (world/entity/inventory packets, etc.) is out of
@@ -233,36 +278,64 @@ public sealed class BedrockSession : IAsyncDisposable
     }
   }
 
-  private Task HandlePlayStatusAsync(PlayStatusCode status, CancellationToken ct)
+  private async Task HandlePlayStatusAsync(PlayStatusCode status, CancellationToken ct)
   {
     if (status == PlayStatusCode.LoginSuccess)
     {
       TransitionTo(BedrockLoginState.AwaitingResourcePacksInfo);
-      return Task.CompletedTask;
+      return;
     }
 
-    // PlayerSpawn isn't a trigger this client waits for (see the StartGame
-    // case), but tolerate it arriving anyway rather than treating it as a
-    // failure. Some servers or protocol variants may still send it.
+    // The second of the two independent conditions the real spawn sequence
+    // waits for - see BedrockLoginState and TryFinalizeSpawnAsync.
     if (status == PlayStatusCode.PlayerSpawn)
     {
-      return Task.CompletedTask;
+      _playStatusPlayerSpawnReceived = true;
+      await TryFinalizeSpawnAsync(ct);
+      return;
     }
 
     throw new InvalidOperationException($"Login failed: server returned PlayStatus {status}.");
   }
 
+  // Mirrors gophertunnel's tryFinaliseClientConn: only once both
+  // ChunkRadiusUpdated and PlayStatus(PlayerSpawn) have arrived (order
+  // unspecified) does the client send SetLocalPlayerAsInitialized - see
+  // BedrockLoginState for why this replaced sending it right after StartGame.
+  private async Task TryFinalizeSpawnAsync(CancellationToken ct)
+  {
+    if (!_chunkRadiusUpdated || !_playStatusPlayerSpawnReceived)
+    {
+      return;
+    }
+
+    TransitionTo(BedrockLoginState.Spawned);
+    await SendGamePacketAsync(SetLocalPlayerAsInitialized.Encode(_actorRuntimeId), ct);
+    _spawnedTcs.TrySetResult();
+  }
+
   private async Task SendLoginAsync(CancellationToken ct)
   {
     IdentityChainResult identity = await _identityProvider.ResolveAsync(_keyPair, ct);
-    string clientDataJwt = ClientDataJwt.Build(_keyPair, _options.ServerAddress);
+    string clientDataJwt = ClientDataJwt.Build(_keyPair, _options.ServerAddress, _options.GameVersion, _options.Username);
 
-    // Certificate is the real Bedrock wire format's chain-of-trust; PMMP's
-    // current AuthenticationInfo model happens not to read it, but other
-    // servers may, so it's still sent whenever the provider has one.
-    string authInfoJson = identity.Certificate is null
-        ? JsonSerializer.Serialize(new { identity.AuthenticationType, identity.Token })
-        : JsonSerializer.Serialize(new { identity.AuthenticationType, identity.Certificate, identity.Token });
+    // Key order matters to real BDS's JSON parsing here (found by capturing
+    // gophertunnel's own real, successful Login packet against this
+    // project's BDS test container): Certificate must come first when
+    // present, matching gophertunnel's own struct field order exactly - see
+    // docs/notes/bedrock-login-design.md. Certificate is omitted entirely
+    // (not even a placeholder) when the provider has none - see
+    // IdentityChainResult.Certificate.
+    var authInfo = new Dictionary<string, object>();
+    if (identity.Certificate is not null)
+    {
+      authInfo["Certificate"] = identity.Certificate;
+    }
+
+    authInfo["AuthenticationType"] = identity.AuthenticationType;
+    authInfo["Token"] = identity.Token;
+
+    string authInfoJson = JsonSerializer.Serialize(authInfo, s_authInfoJsonOptions);
 
     await SendGamePacketAsync(Login.Encode(_options.ProtocolVersion, authInfoJson, clientDataJwt), ct);
   }
@@ -298,6 +371,15 @@ public sealed class BedrockSession : IAsyncDisposable
 
   private async Task SendBatchAsync(IReadOnlyList<byte[]> packets, CancellationToken ct)
   {
+    if (_onVerbose is not null)
+    {
+      foreach (byte[] packet in packets)
+      {
+        var (id, headerSize) = BedrockPacketHeader.ReadId(packet);
+        _onVerbose($"send packet id=0x{(uint)id:X2} ({id}) {packet.Length - headerSize}b");
+      }
+    }
+
     CompressionAlgorithm? compression;
     int threshold;
     BedrockEncryptionContext? encryption;

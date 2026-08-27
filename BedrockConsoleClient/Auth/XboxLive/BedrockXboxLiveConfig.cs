@@ -21,11 +21,6 @@ internal static class BedrockXboxLiveConfig
   // from go-xsapi's xal/sisu/oauth2.go.
   public const string OAuthScope = "service::user.auth.xboxlive.com::MBI_SSL";
 
-  // The relying party the Login packet's identity chain is ultimately
-  // requested for. Confirmed from go-xsapi's nsal resolver test expectations
-  // for https://multiplayer.minecraft.net/authentication.
-  public const string MinecraftRelyingParty = "https://multiplayer.minecraft.net/";
-
   public const string DefaultRelyingParty = "http://xboxlive.com";
 
   // PlayFab title ID for retail Minecraft: Bedrock Edition. Confirmed from
@@ -35,9 +30,9 @@ internal static class BedrockXboxLiveConfig
   public const string PlayFabTitleId = "20CA2";
 
   // The client-version string paired with BedrockLoginOptions.ProtocolVersion
-  // (1001) sent in the identity chain request's Client-Version header.
-  // Confirmed from PMMP's ProtocolInfo::MINECRAFT_VERSION_NETWORK for
-  // CURRENT_PROTOCOL 1001 - must be updated together with ProtocolVersion if
-  // that ever changes.
-  public const string ClientVersion = "1.26.30";
+  // (2168), sent to the Minecraft service discovery/authorization endpoints.
+  // Confirmed live via a RakNet unconnected-ping MOTD reply from the local
+  // BDS test server - must be updated together with ProtocolVersion if that
+  // ever changes.
+  public const string ClientVersion = "1.26.44";
 }

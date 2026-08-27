@@ -46,6 +46,29 @@ catch (Exception ex)
   return;
 }
 
+var loginOptions = new BedrockLoginOptions
+{
+  Username = config.Username,
+  ServerAddress = endpoint.ToString(),
+};
+
+try
+{
+  var serverInfo = await RakNetClient.QueryServerAsync(endpoint, ct: cts.Token);
+  Log($"Server reports: {serverInfo.Edition} protocol {serverInfo.ProtocolVersion} ({serverInfo.GameVersion}), " +
+      $"{serverInfo.PlayerCount}/{serverInfo.MaxPlayerCount} players");
+  if (serverInfo.ProtocolVersion != 0 && serverInfo.ProtocolVersion != loginOptions.ProtocolVersion)
+  {
+    Log($"[warn] server protocol {serverInfo.ProtocolVersion} ({serverInfo.GameVersion}) differs from this " +
+        $"client's {loginOptions.ProtocolVersion} ({loginOptions.GameVersion}) - login may fail with a " +
+        "PlayStatus version mismatch.");
+  }
+}
+catch (Exception ex)
+{
+  Log($"[warn] could not query server version via unconnected ping: {ex.Message}");
+}
+
 Log($"Connecting to {endpoint} ...");
 RakNetConnection connection;
 try
@@ -74,11 +97,6 @@ connection.PingRoundTripMeasured += rtt => Log($"[ping] round trip {rtt.TotalMil
 connection.ConnectionLost += reason => Log($"[error] connection lost: {reason}");
 
 Log("RakNet connected. Starting Bedrock login...");
-var loginOptions = new BedrockLoginOptions
-{
-  Username = config.Username,
-  ServerAddress = endpoint.ToString(),
-};
 
 BedrockSession session;
 try
@@ -88,6 +106,7 @@ try
       loginOptions,
       identityProvider,
       onStateChanged: state => Log($"[login] {state}"),
+      onVerbose: config.Verbose ? message => Log($"[verbose] {message}") : null,
       ct: cts.Token);
 }
 catch (Exception ex)

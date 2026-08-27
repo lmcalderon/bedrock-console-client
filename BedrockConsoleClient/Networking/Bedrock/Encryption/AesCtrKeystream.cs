@@ -7,10 +7,10 @@ using System.Security.Cryptography;
 // counter blocks with plain ECB (no padding) as the block permutation and
 // XORs the keystream into the payload. CTR is its own inverse, so the same
 // routine serves both encrypt and decrypt. state is a genuine continuous
-// byte-stream position (not just a block counter): PMMP's underlying cipher
-// API doesn't align to block boundaries per call, so a payload that doesn't
-// end on a 16-byte boundary must carry its leftover keystream bytes into the
-// next Transform call rather than discarding them.
+// byte-stream position (not just a block counter): the underlying cipher
+// isn't block-aligned per call, so a payload that doesn't end on a 16-byte
+// boundary must carry its leftover keystream bytes into the next Transform
+// call rather than discarding them.
 internal static class AesCtrKeystream
 {
   public static void Transform(ICryptoTransform ecbEncryptor, ReadOnlySpan<byte> nonce12, CtrKeystreamState state, Span<byte> data)
